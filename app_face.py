@@ -1,5 +1,5 @@
 import streamlit as st
-from class_test import FaceAuthentication, FaceRegister
+from face import FaceAuthentication, FaceRegister
 
 def main() :
     # Streamlit UI
