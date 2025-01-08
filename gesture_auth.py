@@ -236,7 +236,6 @@ class GestureAuthSystem:
                 return f"인증 성공! 👋 {username} 님 안녕하세요!"
             else:
                 return "인증 실패"
-        else:
             return "등록되지 않은 사용자입니다."
 
     @staticmethod
