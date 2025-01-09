@@ -37,7 +37,7 @@
 DeepGuard/
 ├── README.md
 ├── requirements.txt
-├── gesture_recognizer.task     # MediaPipe 제스처 인식 모델
+├── gesture_recognizer.task    # MediaPipe 제스처 인식 모델
 ├── gesture_auth.db            # SQLite 데이터베이스
 ├── UI.py                      # Streamlit 메인 UI
 ├── face.py                    # 얼굴 인식 모듈
