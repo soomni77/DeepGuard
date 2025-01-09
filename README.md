@@ -1,5 +1,7 @@
 # 🔒DeepGuard - 2단계 생체인증 시스템
-![logo](https://github.com/user-attachments/assets/f0910917-92a4-4c01-b09e-7dc42c5c3ef4)
+<p align="center">
+  <img src="![logo](https://github.com/user-attachments/assets/f0910917-92a4-4c01-b09e-7dc42c5c3ef4)">
+</p>
 
 
 ## 📋 프로젝트 소개
