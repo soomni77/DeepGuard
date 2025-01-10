@@ -61,7 +61,7 @@ class GestureAuthSystem:
                     gesture_1 TEXT,                -- 첫 번째 제스처
                     gesture_2 TEXT,                -- 두 번째 제스처
                     gesture_3 TEXT,                -- 세 번째 제스처
-                    image_path TEXT
+                    image_path TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP  -- 생성 시간
                 )
             ''')
@@ -84,23 +84,32 @@ class GestureAuthSystem:
         conn.close()
         return result is None
 
-    def save_to_database(self, user_id, username, gestures):
+    def save_to_database(self, user_id, username, gestures, image_path=None):
         """
         사용자 정보와 제스처를 데이터베이스에 저장
         Args:
             user_id (str): 사용자 ID
             username (str): 사용자 이름
             gestures (list): 3개의 제스처 시퀀스
+            image_path (str, optional): 얼굴 이미지 파일 경로
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO users 
-            (id, username, gesture_1, gesture_2, gesture_3)
-            VALUES (?, ?, ?, ?, ?)
-        """, (user_id, username, gestures[0], gestures[1], gestures[2]))
-        conn.commit()
-        conn.close()
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # UPDATE query로 변경
+            cursor.execute("""
+                UPDATE users 
+                SET gesture_1 = ?, gesture_2 = ?, gesture_3 = ?
+                WHERE id = ?
+            """, (gestures[0], gestures[1], gestures[2], user_id))
+            
+            conn.commit()
+            conn.close()
+            st.success("제스처가 성공적으로 저장되었습니다!")
+        except Exception as e:
+            st.error(f"데이터베이스 저장 중 오류 발생: {str(e)}")
+            raise
 
     def result_callback(self, result, output_image, timestamp_ms):
         """
@@ -120,9 +129,12 @@ class GestureAuthSystem:
             mode (str): 'register' 또는 'verify' 모드
             user_id (str): 사용자 ID
             username (str, optional): 사용자 이름 (등록 모드에서만 필요)
+        Returns:
+            bool: 제스처 등록/인증 성공 여부
         """
         # 카메라 설정
-        cap = cv2.VideoCapture(1)
+        cap = cv2.VideoCapture(0)  
+                
         frame_placeholder = st.empty()  # 프레임 표시 영역
         status_placeholder = st.empty()  # 상태 메시지 표시 영역
         
@@ -130,20 +142,22 @@ class GestureAuthSystem:
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
         cap.set(cv2.CAP_PROP_FPS, 60)
-        
 
         # MediaPipe 제스처 인식기 옵션 설정
-
-        with open('gesture_recognizer.task', 'rb') as file:
-           model_data = file.read()
+        try:
+            with open('gesture_recognizer.task', 'rb') as file:
+                model_data = file.read()
+        except FileNotFoundError:
+            st.error("제스처 인식 모델 파일을 찾을 수 없습니다.")
+            return False
 
         options = self.GestureRecognizerOptions(
             base_options=self.BaseOptions(model_asset_buffer=model_data),
             running_mode=self.VisionRunningMode.LIVE_STREAM,
             num_hands=1,  # 한 손만 인식
-            min_hand_detection_confidence=0.5,  # 손 감지 신뢰도 임계값
-            min_hand_presence_confidence=0.5,  # 손 존재 신뢰도 임계값
-            min_tracking_confidence=0.5,  # 추적 신뢰도 임계값
+            min_hand_detection_confidence=0.5,
+            min_hand_presence_confidence=0.5,
+            min_tracking_confidence=0.5,
             result_callback=self.result_callback
         )
 
@@ -151,13 +165,13 @@ class GestureAuthSystem:
         self.is_recording = False
         is_countdown = False
         all_gestures_complete = False
-        self.current_gesture_index = 0  # 현재 녹화 중인 제스처 인덱스
-        recorded_gestures = []  # 녹화된 제스처 목록
+        self.current_gesture_index = 0
+        recorded_gestures = []
         frame_count = 0
 
         # UI 버튼 생성
         button_container = st.container()
-        col1, col2, col3 = button_container.columns([0.12, 0.15, 0.73])
+        col1, col2, col3 = button_container.columns([0.2, 0.2, 0.6])
         with col1:
             start_button = st.button("시작")
         with col2:
@@ -169,6 +183,7 @@ class GestureAuthSystem:
                 while cap.isOpened() and not all_gestures_complete:
                     ret, frame = cap.read()
                     if not ret:
+                        st.error("카메라에서 프레임을 읽을 수 없습니다.")
                         break
 
                     frame = cv2.resize(frame, (640, 480))
@@ -176,7 +191,6 @@ class GestureAuthSystem:
                     
                     # 재시작 버튼 처리
                     if restart_button:
-                        # 모든 상태 변수 초기화
                         self.is_recording = False
                         is_countdown = False
                         self.current_gesture_index = 0
@@ -225,6 +239,9 @@ class GestureAuthSystem:
                                     most_common_gesture = self.gesture_counts.most_common(1)[0][0]
                                     recorded_gestures.append(most_common_gesture)
                                     status_placeholder.success(f"제스처 {self.current_gesture_index + 1}번 완료!")
+                                else:
+                                    recorded_gestures.append(None)
+                                    status_placeholder.warning(f"제스처 {self.current_gesture_index + 1}번 인식 실패!")
                                 
                                 self.is_recording = False
                                 self.current_gesture_index += 1
@@ -234,12 +251,12 @@ class GestureAuthSystem:
                                     self.start_time = current_time
                                     self.gesture_counts.clear()
                                 else:
-                                    if len(recorded_gestures) == 3:
+                                    if len(recorded_gestures) == 3 and all(gesture is not None for gesture in recorded_gestures):
                                         all_gestures_complete = True
                                         status_placeholder.success("모든 제스처가 완료되었습니다!")
                                     else:
                                         st.error("일부 제스처가 제대로 인식되지 않았습니다. 다시 시도해주세요.")
-                                    break
+                                        return False
 
                     # 제스처 인식 처리
                     image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -255,17 +272,28 @@ class GestureAuthSystem:
                     # 프레임 표시
                     frame_placeholder.image(frame, channels="BGR", use_container_width=True)
 
+            except Exception as e:
+                st.error(f"비디오 처리 중 오류 발생: {str(e)}")
+                return False
             finally:
                 cap.release()
 
             # 모든 제스처 완료 후 처리
             if all_gestures_complete and len(recorded_gestures) == 3:
                 if mode == 'register':
-                    self.save_to_database(user_id, username, recorded_gestures)
-                    status_placeholder.success("제스처 등록이 완료되었습니다!")
+                    try:
+                        self.save_to_database(user_id, username, recorded_gestures)
+                        status_placeholder.success("제스처 등록이 완료되었습니다!")
+                        return True
+                    except Exception as e:
+                        st.error(f"제스처 등록 중 오류 발생: {str(e)}")
+                        return False
                 elif mode == 'verify':
                     result = self.verify_gestures(user_id, recorded_gestures)
                     status_placeholder.info(result)
+                    return "성공" in result
+
+            return False
 
     def verify_gestures(self, user_id, input_gestures):
         """
@@ -276,27 +304,30 @@ class GestureAuthSystem:
         Returns:
             str: 인증 결과 메시지
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT username, gesture_1, gesture_2, gesture_3 
-            FROM users WHERE id = ?
-        """, (user_id,))
-        result = cursor.fetchone()
-        conn.close()
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT username, gesture_1, gesture_2, gesture_3 
+                FROM users WHERE id = ?
+            """, (user_id,))
+            result = cursor.fetchone()
+            conn.close()
 
-        if result:
-            username = result[0]
-            stored_gestures = result[1:]
-            # 입력된 제스처와 저장된 제스처 비교
-            matches = sum(1 for stored, input_gesture in zip(stored_gestures, input_gestures)
-                         if stored == input_gesture)
+            if result:
+                username = result[0]
+                stored_gestures = result[1:]
+                # 입력된 제스처와 저장된 제스처 비교
+                matches = sum(1 for stored, input_gesture in zip(stored_gestures, input_gestures)
+                             if stored == input_gesture)
 
-            if matches == 3:
-                return f"인증 성공! 👋 {username} 님 안녕하세요!"
-            else:
-                return "인증 실패"
-        return "등록되지 않은 사용자입니다."
+                if matches == 3:
+                    return f"인증 성공! 👋 {username} 님 안녕하세요!"
+                else:
+                    return "인증 실패: 제스처가 일치하지 않습니다."
+            return "인증 실패: 등록되지 않은 사용자입니다."
+        except Exception as e:
+            return f"인증 오류: {str(e)}"
 
     @staticmethod
     def get_available_gestures():
